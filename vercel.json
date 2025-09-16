@@ -1,16 +1,4 @@
 {
-  "builds": [
-    {
-      "src": "api/webhook.py",
-      "use": "@vercel/python"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/webhook",
-      "dest": "/api/webhook.py"
-    }
-  ],
   "functions": {
     "api/webhook.py": {
       "runtime": "python3.9"

@@ -7,9 +7,6 @@ import hashlib
 import hmac
 import base64
 import requests
-from flask import Flask, request, Response
-
-app = Flask(__name__)
 
 def verify_signature(body, signature):
     """LINE Webhook署名を検証"""
@@ -49,27 +46,45 @@ def send_to_chatwork(message):
         print(f'Chatwork送信エラー: {e}')
         return False
 
-@app.route('/api/webhook', methods=['GET', 'POST'])
-def webhook():
-    """Webhook endpoint"""
+def handler(request, context):
+    """Vercel Serverless Function Handler"""
     # GETリクエスト（ヘルスチェック）
-    if request.method == 'GET':
-        return Response('LINE to Chatwork Bridge is running on Vercel', status=200, mimetype='text/plain')
+    if request['method'] == 'GET':
+        return {
+            'statusCode': 200,
+            'headers': {
+                'Content-Type': 'text/plain'
+            },
+            'body': 'LINE to Chatwork Bridge is running on Vercel'
+        }
 
     # POSTリクエスト処理
+    if request['method'] != 'POST':
+        return {
+            'statusCode': 405,
+            'body': 'Method Not Allowed'
+        }
+
     # 署名検証
-    signature = request.headers.get('x-line-signature', '')
-    body = request.get_data()
+    headers = request.get('headers', {})
+    signature = headers.get('x-line-signature', '')
+    body = request.get('body', '')
 
     if not verify_signature(body, signature):
-        return Response('Invalid signature', status=400)
+        return {
+            'statusCode': 400,
+            'body': 'Invalid signature'
+        }
 
     # JSONをパース
     try:
-        body_json = json.loads(body)
+        body_json = json.loads(body) if isinstance(body, str) else body
         events = body_json.get('events', [])
     except json.JSONDecodeError:
-        return Response('Invalid JSON', status=400)
+        return {
+            'statusCode': 400,
+            'body': 'Invalid JSON'
+        }
 
     # イベント処理
     for event in events:
@@ -91,4 +106,7 @@ def webhook():
             send_to_chatwork(chatwork_message)
 
     # 成功レスポンス
-    return Response('OK', status=200)
+    return {
+        'statusCode': 200,
+        'body': 'OK'
+    }
