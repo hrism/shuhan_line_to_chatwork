@@ -1,6 +1,4 @@
-"""
-Vercel Serverless Function for LINE to Chatwork Bridge
-"""
+from http.server import BaseHTTPRequestHandler
 import os
 import json
 import hashlib
@@ -16,7 +14,7 @@ def verify_signature(body, signature):
 
     hash = hmac.new(
         channel_secret.encode('utf-8'),
-        body.encode('utf-8') if isinstance(body, str) else body,
+        body,
         hashlib.sha256
     ).digest()
     expected_signature = base64.b64encode(hash).decode('utf-8')
@@ -46,67 +44,60 @@ def send_to_chatwork(message):
         print(f'Chatwork送信エラー: {e}')
         return False
 
-def handler(request, context):
-    """Vercel Serverless Function Handler"""
-    # GETリクエスト（ヘルスチェック）
-    if request['method'] == 'GET':
-        return {
-            'statusCode': 200,
-            'headers': {
-                'Content-Type': 'text/plain'
-            },
-            'body': 'LINE to Chatwork Bridge is running on Vercel'
-        }
+class handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        """GETリクエスト処理（ヘルスチェック）"""
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b'LINE to Chatwork Bridge is running on Vercel')
 
-    # POSTリクエスト処理
-    if request['method'] != 'POST':
-        return {
-            'statusCode': 405,
-            'body': 'Method Not Allowed'
-        }
+    def do_POST(self):
+        """POSTリクエスト処理"""
+        # 署名検証
+        signature = self.headers.get('X-Line-Signature', '')
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
 
-    # 署名検証
-    headers = request.get('headers', {})
-    signature = headers.get('x-line-signature', '')
-    body = request.get('body', '')
+        if not verify_signature(body, signature):
+            self.send_response(400)
+            self.send_header('Content-Type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'Invalid signature')
+            return
 
-    if not verify_signature(body, signature):
-        return {
-            'statusCode': 400,
-            'body': 'Invalid signature'
-        }
+        # JSONをパース
+        try:
+            body_json = json.loads(body)
+            events = body_json.get('events', [])
+        except json.JSONDecodeError:
+            self.send_response(400)
+            self.send_header('Content-Type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'Invalid JSON')
+            return
 
-    # JSONをパース
-    try:
-        body_json = json.loads(body) if isinstance(body, str) else body
-        events = body_json.get('events', [])
-    except json.JSONDecodeError:
-        return {
-            'statusCode': 400,
-            'body': 'Invalid JSON'
-        }
+        # イベント処理
+        for event in events:
+            if event['type'] == 'message':
+                message_type = event['message']['type']
+                user_id = event.get('source', {}).get('userId', 'Unknown')
 
-    # イベント処理
-    for event in events:
-        if event['type'] == 'message':
-            message_type = event['message']['type']
-            user_id = event.get('source', {}).get('userId', 'Unknown')
+                if message_type == 'text':
+                    text = event['message']['text']
+                    chatwork_message = f'[info][title]LINEメッセージ受信[/title]メッセージ: {text}\nユーザーID: {user_id}[/info]'
+                elif message_type == 'image':
+                    chatwork_message = f'[info][title]LINEメッセージ受信[/title]画像が送信されました\nユーザーID: {user_id}[/info]'
+                elif message_type == 'sticker':
+                    chatwork_message = f'[info][title]LINEメッセージ受信[/title]スタンプが送信されました\nユーザーID: {user_id}[/info]'
+                else:
+                    chatwork_message = f'[info][title]LINEメッセージ受信[/title]{message_type}タイプのメッセージを受信\nユーザーID: {user_id}[/info]'
 
-            if message_type == 'text':
-                text = event['message']['text']
-                chatwork_message = f'[info][title]LINEメッセージ受信[/title]メッセージ: {text}\nユーザーID: {user_id}[/info]'
-            elif message_type == 'image':
-                chatwork_message = f'[info][title]LINEメッセージ受信[/title]画像が送信されました\nユーザーID: {user_id}[/info]'
-            elif message_type == 'sticker':
-                chatwork_message = f'[info][title]LINEメッセージ受信[/title]スタンプが送信されました\nユーザーID: {user_id}[/info]'
-            else:
-                chatwork_message = f'[info][title]LINEメッセージ受信[/title]{message_type}タイプのメッセージを受信\nユーザーID: {user_id}[/info]'
+                # Chatworkに送信
+                send_to_chatwork(chatwork_message)
 
-            # Chatworkに送信
-            send_to_chatwork(chatwork_message)
-
-    # 成功レスポンス
-    return {
-        'statusCode': 200,
-        'body': 'OK'
-    }
+        # 成功レスポンス
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b'OK')
