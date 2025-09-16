@@ -7,7 +7,9 @@ import hashlib
 import hmac
 import base64
 import requests
-from flask import Response
+from flask import Flask, request, Response
+
+app = Flask(__name__)
 
 def verify_signature(body, signature):
     """LINE Webhook署名を検証"""
@@ -17,7 +19,7 @@ def verify_signature(body, signature):
 
     hash = hmac.new(
         channel_secret.encode('utf-8'),
-        body.encode('utf-8'),
+        body.encode('utf-8') if isinstance(body, str) else body,
         hashlib.sha256
     ).digest()
     expected_signature = base64.b64encode(hash).decode('utf-8')
@@ -47,26 +49,25 @@ def send_to_chatwork(message):
         print(f'Chatwork送信エラー: {e}')
         return False
 
-def handler(request):
-    """Vercel Serverless Function Handler"""
+@app.route('/api/webhook', methods=['GET', 'POST'])
+def webhook():
+    """Webhook endpoint"""
     # GETリクエスト（ヘルスチェック）
     if request.method == 'GET':
         return Response('LINE to Chatwork Bridge is running on Vercel', status=200, mimetype='text/plain')
 
     # POSTリクエスト処理
-    if request.method != 'POST':
-        return Response('Method Not Allowed', status=405)
-
     # 署名検証
     signature = request.headers.get('x-line-signature', '')
-    body = request.get_data(as_text=True)
+    body = request.get_data()
 
     if not verify_signature(body, signature):
         return Response('Invalid signature', status=400)
 
     # JSONをパース
     try:
-        events = json.loads(body).get('events', [])
+        body_json = json.loads(body)
+        events = body_json.get('events', [])
     except json.JSONDecodeError:
         return Response('Invalid JSON', status=400)
 
