@@ -46,33 +46,30 @@ def send_to_chatwork(message):
         print(f'Chatwork送信エラー: {e}')
         return False
 
-def handler(request, response):
+def handler(request):
     """Vercel Serverless Function Handler"""
+    from flask import Response
+
     # GETリクエスト（ヘルスチェック）
     if request.method == 'GET':
-        response.status_code = 200
-        response.headers['Content-Type'] = 'text/plain'
-        return 'LINE to Chatwork Bridge is running on Vercel'
+        return Response('LINE to Chatwork Bridge is running on Vercel', status=200, mimetype='text/plain')
 
     # POSTリクエスト処理
     if request.method != 'POST':
-        response.status_code = 405
-        return 'Method Not Allowed'
+        return Response('Method Not Allowed', status=405)
 
     # 署名検証
     signature = request.headers.get('x-line-signature', '')
-    body = request.body
+    body = request.get_data(as_text=True)
 
     if not verify_signature(body, signature):
-        response.status_code = 400
-        return 'Invalid signature'
+        return Response('Invalid signature', status=400)
 
     # JSONをパース
     try:
         events = json.loads(body).get('events', [])
     except json.JSONDecodeError:
-        response.status_code = 400
-        return 'Invalid JSON'
+        return Response('Invalid JSON', status=400)
 
     # イベント処理
     for event in events:
@@ -94,5 +91,4 @@ def handler(request, response):
             send_to_chatwork(chatwork_message)
 
     # 成功レスポンス
-    response.status_code = 200
-    return 'OK'
+    return Response('OK', status=200)
