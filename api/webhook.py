@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import base64
 import requests
+from flask import Response
 
 def verify_signature(body, signature):
     """LINE Webhook署名を検証"""
@@ -48,8 +49,6 @@ def send_to_chatwork(message):
 
 def handler(request):
     """Vercel Serverless Function Handler"""
-    from flask import Response
-
     # GETリクエスト（ヘルスチェック）
     if request.method == 'GET':
         return Response('LINE to Chatwork Bridge is running on Vercel', status=200, mimetype='text/plain')
